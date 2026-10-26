@@ -131,7 +131,7 @@
             <p class="head__sub" id="market-note">Market opens at launch.</p>
           </div>
           <div class="prose">
-            <p>Sellers <code>approve()</code> then <code>list(amount, price)</code> — tokens stay in the seller's wallet until filled. Buyers <code>buy(id, amount)</code> or <code>buyMany(ids, amounts)</code> in one transaction; the contract settles tokens and BNB atomically.</p>
+            <p>Sellers list, buyers pick an order and pay in BNB. Tokens and BNB swap in one transaction.</p>
           </div>
           <section class="stats">
             <div class="stat"><span class="stat__fig" id="m-count">—</span><span class="stat__label">Open orders</span></div>
@@ -174,18 +174,25 @@
           </div>
           <div class="x-prompt">
             <h3>Claim</h3>
-            <pre id="prompt-claim">Claim 3110 on BSC: call claim(address ref) on token 0xe8bcc7ade0618511cac863077c0d97fd6e4eb2b5 (selector 0x1e83409a), ref = 0x0000000000000000000000000000000000000000 or the inviter's address, with msg.value = feeWei() (read selector 0x428c090b; send a little more, excess is refunded). Requires holding a SPACE ID Agent ID on the same wallet. One claim per wallet.</pre>
+            <pre id="prompt-claim">Claim 3110 on BSC: call claim(0x0000000000000000000000000000000000000000) on token 0xe8bcc7ade0618511cac863077c0d97fd6e4eb2b5 and send feeWei() as the value. One claim per Agent ID wallet.</pre>
             <div class="x-prompt__row">
               <button class="btn" type="button" data-copy="prompt-claim">Copy prompt</button>
               <span class="fineprint" aria-live="polite"></span>
             </div>
           </div>
           <div class="x-prompt">
-            <h3>Sell or buy</h3>
-            <pre id="prompt-trade">Sell 3110 on BSC: approve(market, amount) on the token 0xe8bcc7ade0618511cac863077c0d97fd6e4eb2b5, then list(amount, priceWeiPerToken) on market 0x8d38474cc78e49679a1e22a141ed1257952e1132.
-Buy 3110 on BSC: buy(orderId, amount) on market 0x8d38474cc78e49679a1e22a141ed1257952e1132 with msg.value = amount*price/1e18 rounded up.</pre>
+            <h3>Buy</h3>
+            <pre id="prompt-buy">Buy 3110 on BSC: read openOrders(0, 20) on market 0x8d38474cc78e49679a1e22a141ed1257952e1132, pick the cheapest order, then call buy(orderId, amount) and send cost(orderId, amount) as the value.</pre>
             <div class="x-prompt__row">
-              <button class="btn" type="button" data-copy="prompt-trade">Copy prompt</button>
+              <button class="btn" type="button" data-copy="prompt-buy">Copy prompt</button>
+              <span class="fineprint" aria-live="polite"></span>
+            </div>
+          </div>
+          <div class="x-prompt">
+            <h3>Sell</h3>
+            <pre id="prompt-sell">Sell 3110 on BSC: approve market 0x8d38474cc78e49679a1e22a141ed1257952e1132 on token 0xe8bcc7ade0618511cac863077c0d97fd6e4eb2b5 for your amount, then call list(amount, priceInWeiPerToken) on the market.</pre>
+            <div class="x-prompt__row">
+              <button class="btn" type="button" data-copy="prompt-sell">Copy prompt</button>
               <span class="fineprint" aria-live="polite"></span>
             </div>
           </div>
@@ -256,6 +263,7 @@ Buy 3110 on BSC: buy(orderId, amount) on market 0x8d38474cc78e49679a1e22a141ed12
 
         // ---------- RPC ----------
         var rid = 1;
+        var rpcGood = 0, rpcCool = RPCS.map(function () { return 0; });
         async function rpcOne(url, method, params) {
           var ctrl = new AbortController();
           var t = setTimeout(function () { ctrl.abort(); }, 12000);
@@ -274,11 +282,19 @@ Buy 3110 on BSC: buy(orderId, amount) on market 0x8d38474cc78e49679a1e22a141ed12
           } finally { clearTimeout(t); }
         }
         async function rpc(method, params) {
-          var err;
-          for (var i = 0; i < RPCS.length; i++) {
-            try { return await rpcOne(RPCS[i], method, params); } catch (e) { err = e; }
+          var err, now = Date.now(), tried = 0;
+          for (var k = 0; k < RPCS.length; k++) {
+            var i = (rpcGood + k) % RPCS.length;
+            if (rpcCool[i] > now && k < RPCS.length - 1) continue;
+            tried++;
+            try {
+              var res = await rpcOne(RPCS[i], method, params);
+              rpcGood = i;
+              rpcCool[i] = 0;
+              return res;
+            } catch (e) { err = e; rpcCool[i] = Date.now() + 60000; }
           }
-          throw err;
+          throw err || new Error("all RPCs cooling down");
         }
         function call(to, data) { return rpc("eth_call", [{ to: to, data: data }, "latest"]); }
         function hasCode(addr) { return rpc("eth_getCode", [addr, "latest"]).then(function (c) { return !!c && c !== "0x" && c !== "0x0"; }); }
@@ -446,8 +462,8 @@ Buy 3110 on BSC: buy(orderId, amount) on market 0x8d38474cc78e49679a1e22a141ed12
           inv.hidden = false;
           inv.innerHTML = '<span class="chip chip--solid">Invited by ' + short(ref) + '</span> <span class="fineprint x-mono">' + ref + "</span>";
           $("prompt-claim").textContent = $("prompt-claim").textContent.replace(
-            "ref = 0x0000000000000000000000000000000000000000 or the inviter's address",
-            "ref = " + ref + " (the inviter's address)"
+            "claim(0x0000000000000000000000000000000000000000)",
+            "claim(" + ref + ")"
           );
         }
 
